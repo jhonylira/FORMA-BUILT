@@ -58,4 +58,3 @@ Para testar com Edge instalado, defina `BROWSER_CHANNEL=msedge` no ambiente ante
 ## Bibliotecas de terceiros
 
 Inclui polygon-clipping 0.15.7 e earcut 2.2.4. Os avisos e licenças estão em `src/polygon-clipping-LICENSE.md`, `src/earcut-LICENSE.txt` e no HTML gerado.
-

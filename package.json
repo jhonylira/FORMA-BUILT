@@ -1,0 +1,13 @@
+{
+  "name": "forma-built",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Estudo de lote, volumetria e distribui\u00e7\u00e3o param\u00e9trica de apartamentos",
+  "scripts": {
+    "test": "node tests/layout.cjs && node tests/floors.cjs && node tests/editing.cjs && node tests/snap.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
+

@@ -1,0 +1,50 @@
+/* Geometry is independent of rendering. Distances and elevations are in metres. */
+(function(global){
+'use strict';
+const clone=o=>JSON.parse(JSON.stringify(o));
+const defaults={w:46,d:63,n:2,floors:18,ground:4.5,storey:3,baseFloors:3,crown:3,fill:80,depth:75,mode:'blind15',yaw:145,pitch:28,zoom:100,grid:true,dimensions:true,theme:'light',roadSelected:'front',roads:{front:{enabled:true,width:16,min:8,max:36,walk:2,aligned:true},right:{enabled:false,width:14,min:8,max:36,walk:2,aligned:true},back:{enabled:false,width:14,min:8,max:36,walk:2,aligned:true},left:{enabled:false,width:14,min:8,max:36,walk:2,aligned:true}}};
+const bounds={w:[12,120,1],d:[15,140,1],n:[1,4,1],floors:[1,40,1],ground:[2.5,6,.1],storey:[2.5,5,.1],baseFloors:[0,5,1],crown:[0,8,.1],fill:[30,100,1],depth:[30,100,1],yaw:[-180,180,1],pitch:[0,90,1],zoom:[50,180,1]};
+const round=n=>Math.round(n*1e8)/1e8;
+function normalize(input){const p=clone(defaults);if(!input||typeof input!=='object')return p;
+for(const [key,[lo,hi,step]]of Object.entries(bounds)){if(Number.isFinite(input[key]))p[key]=round(Math.max(lo,Math.min(hi,lo+Math.round((input[key]-lo)/step)*step)));}
+for(const k of ['grid','dimensions'])if(typeof input[k]==='boolean')p[k]=input[k];
+if(['open','blind9','blind15'].includes(input.mode))p.mode=input.mode;if(['light','dark'].includes(input.theme))p.theme=input.theme;
+if(Object.keys(p.roads).includes(input.roadSelected))p.roadSelected=input.roadSelected;
+for(const k of Object.keys(p.roads)){const r=input.roads?.[k];if(!r||typeof r!=='object')continue;for(const f of ['enabled','aligned'])if(typeof r[f]==='boolean')p.roads[k][f]=r[f];for(const f of ['min','max','width','walk'])if(Number.isFinite(r[f]))p.roads[k][f]=Math.max(f==='walk'?1:6,Math.min(f==='walk'?5:60,r[f]));if(p.roads[k].min>p.roads[k].max){p.roads[k].min=8;p.roads[k].max=36;}p.roads[k].width=Math.max(p.roads[k].min,Math.min(p.roads[k].max,p.roads[k].width));p.roads[k].walk=Math.min(p.roads[k].walk,(p.roads[k].width-3)/2);}
+return p;}
+function calculate(input){const p=normalize(input),H=round(p.ground+(p.floors-1)*p.storey),a=H>15?Math.max(3,H/10):1.5,gap=p.n>1?1.5*a:0;
+const levels=[0];for(let i=0;i<p.floors;i++)levels.push(round(p.ground+i*p.storey));
+const blindLimit=p.mode==='blind9'?9:15;let baseFloors=Math.min(p.baseFloors,p.floors);
+while(baseFloors>0&&levels[baseFloors]>blindLimit+1e-8)baseFloors--;
+const baseHeight=levels[baseFloors],boxes=[],warnings=[],floorAreas=[],envelopes=[];
+if(baseFloors!==p.baseFloors)warnings.push(`Base ajustada para ${baseFloors} pavimento(s) completo(s), respeitando ${blindLimit} m.`);
+function setbacks(top,isBase=false){const upper=top>15+1e-8,side=upper?Math.max(3,H/10):(isBase&&p.mode!=='open'&&top<=blindLimit+1e-8?0:1.5),out={};for(const key of ['left','right','front','back']){const isFront=key==='front'||p.roads[key].frontage;out[key]=isFront?(p.roads[key].aligned?(upper?5:0):5):side;}return out;}
+function envelope(top,isBase){const s=setbacks(top,isBase);return{x:-p.w/2+s.left,z:-p.d/2+s.front,w:p.w-s.left-s.right,d:p.d-s.front-s.back,s};}
+function rects(top,isBase){const e=envelope(top,isBase);envelopes.push({...e,top});if(e.w<=0||e.d<=0)return[];if(isBase){const factor=Math.sqrt(p.baseCoverage/100);return[{...e,x:e.x+e.w*(1-factor)/2,z:e.z+e.d*(1-factor)/2,w:e.w*factor,d:e.d*factor}];}const bay=(p.w-gap*(p.n-1))/p.n;if(bay<=0)return[];let rs=[];for(let t=0;t<p.n;t++){const left=-p.w/2+t*(bay+gap),x=Math.max(left,e.x),right=Math.min(left+bay,e.x+e.w),width=right-x;if(width<=1e-8)return[];const w=width*p.fill/100,d=e.d*p.depth/100;rs.push({x:x+(width-w)/2,z:e.z+(e.d-d)/2,w,d,t});}return rs;}
+let valid=true;for(let i=0;i<p.floors;i++){const isBase=i<baseFloors,rs=rects(levels[i+1],isBase);if(!rs.length)valid=false;let area=0;for(const r of rs){if(i>0){const below=boxes.find(b=>b.floor===i&&(b.type==='base'||b.t===r.t));if(!below){valid=false;continue;}const right=Math.min(r.x+r.w,below.x+below.w),back=Math.min(r.z+r.d,below.z+below.d);r.x=Math.max(r.x,below.x);r.z=Math.max(r.z,below.z);r.w=right-r.x;r.d=back-r.z;if(r.w<=1e-8||r.d<=1e-8){valid=false;continue;}}area+=r.w*r.d;boxes.push({...r,y:levels[i],h:levels[i+1]-levels[i],type:isBase?'base':'tower',floor:i+1});}floorAreas.push(area);}
+// A roof structure above 15 m also stays inside the upper envelope, even if H is exactly 15 m.
+if(p.crown>0&&valid){const top=envelope(H+p.crown,false),last=boxes.filter(b=>b.floor===p.floors);for(const b of last){const x=Math.max(b.x+b.w*.18,top.x),z=Math.max(b.z+b.d*.18,top.z),right=Math.min(b.x+b.w*.82,top.x+top.w),back=Math.min(b.z+b.d*.82,top.z+top.d);if(right>x&&back>z)boxes.push({x,z,w:right-x,d:back-z,y:H,h:p.crown,type:'crown',floor:0});else warnings.push('Coroamento não cabe no envelope superior e foi omitido.');}}
+if(!valid){boxes.length=0;warnings.unshift('As torres não cabem nos afastamentos. Amplie o lote ou reduza a altura ou o número de torres.');}
+const volume=valid?boxes.filter(b=>b.type!=='crown').reduce((v,b)=>v+b.w*b.d*b.h,0):0;
+const area=valid?floorAreas.reduce((a,b)=>a+b,0):0,projection=valid?Math.max(...floorAreas):0;
+const crossing=levels.findIndex((v,i)=>i>0&&levels[i-1]<15&&v>15);
+return{p,H,a,gap,levels,baseFloors,baseHeight,boxes,volume,area,projection,occupation:projection/(p.w*p.d)*100,valid,warnings,crossing,upper:envelope(Math.max(H+p.crown,15.0001),false),setbacks:setbacks(H,false),floorAreas};}
+const zones={ZR:60,ZCP:80,ZCS:80,ZMD:70,ZMDR:70,ZI:70,ZIC:70,ZIR:70,ZET:50};
+Object.assign(defaults,{baseCoverage:60,zone:'ZR',heightLimit:60,viewMode:'both',lotName:'Meu lote',reference:'',zoneConfirmed:false,heightConfirmed:false,roadsConfirmed:false,baseException:false,parkingUse:'residential',units:20,parkingArea:0,parkingProvided:0});bounds.baseCoverage=[10,100,1];
+for(const [side,r]of Object.entries(defaults.roads))r.frontage=side==='front';
+const previousNormalize=normalize;
+normalize=function(input){const p=previousNormalize(input);input=input||{};p.zone=Object.hasOwn(zones,input.zone)?input.zone:defaults.zone;p.heightLimit=[36,60,90].includes(+input.heightLimit)?+input.heightLimit:60;p.viewMode=['both','envelope','building'].includes(input.viewMode)?input.viewMode:'both';for(const k of ['zoneConfirmed','heightConfirmed','roadsConfirmed','baseException'])p[k]=input[k]===true;for(const k of ['lotName','reference'])p[k]=typeof input[k]==='string'?input[k].slice(0,k==='lotName'?80:300):defaults[k];for(const [side,r]of Object.entries(p.roads))r.frontage=side==='front'||(typeof input.roads?.[side]?.frontage==='boolean'?input.roads[side].frontage:!!input.roads?.[side]?.enabled);p.parkingUse=['residential','hotel','school_basic','school_other','commercial'].includes(input.parkingUse)?input.parkingUse:'residential';for(const k of ['units','parkingProvided','parkingArea'])p[k]=Math.max(0,Math.min(1000000,Number.isFinite(+input[k])?+input[k]:defaults[k]));p.units=Math.floor(p.units);p.parkingProvided=Math.floor(p.parkingProvided);return p;};
+const previousCalculate=calculate;
+calculate=function(input){const m=previousCalculate(input),p=m.p,limitTO=zones[p.zone],envelope=[];
+// The envelope is conditional on the proposed H, not an unconditional maximum volume.
+const stop=Math.min(m.H,p.heightLimit),breaks=[0,...(p.mode==='blind9'&&m.baseHeight>0?[Math.min(m.baseHeight,9)]:m.baseHeight>0?[m.baseHeight]:[]),15,stop].filter(y=>y>=0&&y<=stop).sort((a,b)=>a-b);
+const ys=[...new Set(breaks)];for(let i=1;i<ys.length;i++){const bottom=ys[i-1],top=ys[i],isBase=top<=m.baseHeight+1e-8,side=top>15?Math.max(3,m.H/10):(isBase&&p.mode!=='open'?0:1.5),set={};for(const k of ['left','right','front','back'])set[k]=(k==='front'||p.roads[k].frontage)?(p.roads[k].aligned?(top>15?5:0):5):side;const e={x:-p.w/2+set.left,z:-p.d/2+set.front,w:p.w-set.left-set.right,d:p.d-set.front-set.back,y:bottom,h:top-bottom,type:'envelope'};if(e.w>0&&e.d>0&&e.h>0)envelope.push(e);}
+const exemption=p.baseException&&p.zone!=='ZET'&&p.mode==='blind15';const checkedAreas=m.floorAreas.filter((_,i)=>!(exemption&&i<m.baseFloors));const assessedProjection=m.valid?Math.max(0,...checkedAreas):0,assessedTO=assessedProjection/(p.w*p.d)*100;
+const checks=[{id:'geometry',ok:m.valid,label:'Implantação e afastamentos',detail:m.valid?'Volumes dentro dos recuos modelados.':'Os volumes não cabem. Reduza torres ou amplie o lote.'},{id:'height',ok:m.H<=p.heightLimit+1e-8,label:'Altura',detail:`${m.H.toFixed(1)} m propostos / ${p.heightLimit} m adotados.`},{id:'occupation',ok:assessedTO<=limitTO+1e-7,label:'Ocupação preliminar',detail:`${assessedTO.toFixed(1)}% computados / ${limitTO}% de referência${exemption?' · base sob hipótese do art. 12, §2º':''}.`}];
+let parking,parkingBasis;switch(p.parkingUse){case'residential':parking=p.units;parkingBasis='1 vaga por unidade habitacional';break;case'hotel':parking=Math.ceil(p.units/3);parkingBasis='1 vaga por 3 quartos ou apartamentos';break;case'school_basic':parking=4*p.units;parkingBasis='4 vagas por unidade de ensino';break;case'school_other':parking=Math.ceil(p.parkingArea/75);parkingBasis='1 vaga por 75 m²';break;case'commercial':parking=Math.ceil(Math.max(0,p.parkingArea-120)/75);parkingBasis='1 vaga por 75 m² excedentes a 120 m²';}
+return Object.assign(m,{envelope,limitTO,assessedTO,exemption,checks,parking,parkingBasis,maxFloors:Math.max(0,Math.floor((p.heightLimit-p.ground)/p.storey+1+1e-8)),pending:['zone','height','roads'].filter(k=>!p[k+'Confirmed']),within:checks.every(c=>c.ok)});};
+function fit(input){let p=normalize(input),m=calculate(p);p.floors=Math.max(1,Math.min(p.floors,m.maxFloors));for(let i=0;i<100;i++){m=calculate(p);if(m.within)return{state:p,ok:true};if(!m.valid)return{state:normalize(input),ok:false};if(!m.checks.find(c=>c.id==='occupation').ok){p.baseCoverage=Math.max(10,p.baseCoverage-1);p.fill=Math.max(30,p.fill-1);p.depth=Math.max(30,p.depth-1);}else break;}return{state:normalize(input),ok:false};}
+const api={defaults,bounds,normalize,calculate,clone,zones,fit};if(typeof module!=='undefined')module.exports=api;else global.Volumetry=api;
+})(typeof window!=='undefined'?window:globalThis);
+
+

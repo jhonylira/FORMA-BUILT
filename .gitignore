@@ -1,0 +1,9 @@
+node_modules/
+__pycache__/
+tests/*.png
+tests/*.json
+src/Simulador-volumetrico-v*.html
+src/volumetria-v4-app.js
+src/volumetria-v4-features.js
+src/volumetria-v4-renderer.js
+src/volumetria-v5-renderer.js

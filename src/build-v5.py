@@ -1,0 +1,32 @@
+from pathlib import Path
+p=Path(__file__).parent
+def read(n):return (p/n).read_text(encoding='utf-8-sig')
+def write(n,s):(p/n).write_text(s,encoding='utf-8')
+h=read('Simulador-volumetrico-v04.html')
+h=h.replace('<script>'+read('volumetria-v4-editor.js'),'<script>'+read('volumetria-v5-snap.js')+'</script><script>'+read('volumetria-v5-lot-editor.js'),1)
+h=h.replace('Coordenadas locais em metros · malha de 5 m','Coordenadas locais em metros · malha ajustável')
+h=h.replace('<script>'+read('volumetria-v4-crown.js'),'<script>'+read('volumetria-v5-floors.js')+'</script><script>'+read('volumetria-v4-crown.js'),1)
+a=read('volumetria-v4-app.js').replace("key='forma.volumetria.v4'","key='forma.volumetria.v5'").replace("localStorage.getItem('forma.volumetria.v3')","localStorage.getItem('forma.volumetria.v4')||localStorage.getItem('forma.volumetria.v3')")
+a=a.replace('let s=V.clone(V.defaults)', 'let s=V.normalize(V.defaults)')
+a=a.replace("Amplie o terreno ou reduza", "Revise os pavimentos personalizados, amplie o terreno ou reduza")
+h=h.replace(read('volumetria-v4-app.js'),a)
+f=read('volumetria-v4-features.js').replace('forma.options.v4','forma.options.v5').replace("version:'04.1'","version:'05'").replace('Forma-v04-estudo.json','Forma-v05-estudo.json').replace('results:{lotArea:', 'results:{program:m.program,floorIssues:m.floorIssues,lotArea:')
+f=f.replace('Não encontrei um ajuste mantendo estas torres e este lote. Amplie o terreno ou reduza o número de torres.', 'Não encontrei um ajuste automático. Com pavimentos personalizados, revise os contornos no editor; as edições foram preservadas.')
+f=f.replace("localStorage.getItem('forma.options.v5')||'[]'", "localStorage.getItem('forma.options.v5')||localStorage.getItem('forma.options.v4')||'[]'")
+h=h.replace(read('volumetria-v4-features.js'),f)
+r=read('volumetria-v4-renderer.js')
+r=r.replace("for(const b of (p.viewMode==='envelope'?[]:model.boxes))", "for(const b of (p.viewMode==='envelope'?[]:model.boxes.filter(b=>!p.floorIsolate||b.floor>0&&b.floor<=Number(p.floorFocus.split(':')[0]))))")
+r=r.replace("rgb(b.type!=='crown'&&b.y+b.h>p.heightLimit+1e-8?'cd8b79':colors[b.type])", "rgb(b.conflict?'d6857d':b.floor>0&&FloorDesign.key(b)===p.floorFocus?'7fb7d1':b.type!=='crown'&&b.y+b.h>p.heightLimit+1e-8?'cd8b79':colors[b.type])")
+r=r.replace("if(p.viewMode!=='building'){\n const c=", """if(p.viewMode!=='envelope'){const chosen=model.floorCatalog.find(b=>b.key===p.floorFocus);if(chosen){for(const s of chosen.sectors)polygonSurface(s.polys,chosen.y+chosen.h+.006,rgb(FloorDesign.uses[s.use][1].slice(1)));flush(0);}}
+if(p.viewMode!=='building'){
+ const c=""")
+r=r.replace('return{draw,exportImage()', 'return{draw,'+read('v5-renderer-pick.txt')+'exportImage()')
+write('volumetria-v5-renderer.js',r)
+h=h.replace(read('volumetria-v4-renderer.js'),r)
+h=h.replace('o modelo preserva a seção superior dentro da inferior.', 'os pavimentos automáticos preservam a seção superior dentro da inferior. Edições manuais podem gerar balanços, sinalizados como pendência estrutural.')
+h=h.replace('Forma 04.1','Forma 05').replace('FORMA 04.1','FORMA 05').replace('class="version">04.1','class="version">05')
+toolbar='''<div class="floor-toolbar"><div class="eyebrow">PAVIMENTOS E SETORES</div><label class="plain-label" for="floor-picker">Escolha o pavimento</label><select id="floor-picker"></select><div class="floor-toolbar-actions"><button id="edit-floor">Editar planta e setores</button><button id="pick-floor" aria-pressed="false">Selecionar no 3D</button><label class="check"><input type="checkbox" id="isolate-floor">Ocultar andares acima</label></div><p id="program-summary" class="hint"></p></div>'''
+h=h.replace('<div class="study-actions">',toolbar+'<div class="study-actions">',1)
+h=h.replace('</style>',''' .snap-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 0;font-size:11px}.snap-toolbar .check{margin:0;font-size:11px;min-height:28px}.snap-toolbar input[type=number]{width:56px;padding:5px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text)}.snap-toolbar button{padding:4px 8px;min-height:30px;font-size:11px}.snap-toolbar span{flex-basis:100%;color:var(--sub)} '''+'''.floor-toolbar{margin:4px 30px 20px;padding:18px;background:var(--surface);border:1px solid var(--line);border-radius:14px}.floor-toolbar select{max-width:460px}.floor-toolbar-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}.floor-toolbar-actions .check{margin:0}#floor-plan{touch-action:none}#floor-plan [data-vertex]{cursor:grab}#floor-plan [data-sector]{cursor:pointer}#floor-editor{width:min(1180px,96vw)}#floor-editor .editor-layout{grid-template-columns:minmax(0,1fr) 330px}#floor-editor .editor-inspector{max-height:65vh}@media(max-width:760px){#floor-editor .editor-layout{grid-template-columns:1fr}#floor-editor .editor-inspector{max-height:none}.floor-toolbar{margin-left:18px;margin-right:18px}}\n</style>''',1)
+h=h.replace('</body>',read('volumetria-v5-editor.html')+'<script>'+read('volumetria-v5-editor.js')+'</script></body>')
+write('Simulador-volumetrico-v05.html',h)
